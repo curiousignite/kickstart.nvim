@@ -3,7 +3,6 @@
 --  NOTE: Must happen before plugins are loaded (otherwise wrong leader will be used)
 vim.g.mapleader = ' '
 vim.g.maplocalleader = ' '
-
 -- Set to true if you have a Nerd Font installed and selected in the terminal
 vim.g.have_nerd_font = true
 
@@ -141,6 +140,7 @@ vim.opt.rtp:prepend(lazypath)
 --
 -- NOTE: Here is where you install your plugins.
 require('lazy').setup({
+  install = { colorscheme = { 'solarized-osaka.nvim', 'craftzdog' } },
   -- NOTE: Plugins can be added with a link (or for a github repo: 'owner/repo' link).
   'tpope/vim-sleuth', -- Detect tabstop and shiftwidth automatically
 
@@ -211,6 +211,44 @@ require('lazy').setup({
       }, { mode = 'v' })
     end,
   },
+  { 'echasnovski/mini.nvim', version = false },
+  {
+    'folke/trouble.nvim',
+    opts = {},
+    cmd = 'Trouble',
+    keys = {
+      {
+        '<leader>xx',
+        '<cmd>Trouble diagnostics toggle<cr>',
+        desc = 'Diagnostics (Trouble)',
+      },
+      {
+        '<leader>xX',
+        '<cmd>Trouble diagnostics toggle filter.buf=0<cr>',
+        desc = 'Buffer Diagnostics (Trouble)',
+      },
+      {
+        '<leader>cs',
+        '<cmd>Trouble symbols toggle focus=false<cr>',
+        desc = 'Symbols (Trouble)',
+      },
+      {
+        '<leader>cl',
+        '<cmd>Trouble lsp toggle focus=false win.position=right<cr>',
+        desc = 'LSP Definitions / references / ... (Trouble)',
+      },
+      {
+        '<leader>xL',
+        '<cmd>Trouble loclist toggle<cr>',
+        desc = 'Location List (Trouble)',
+      },
+      {
+        '<leader>xQ',
+        '<cmd>Trouble qflist toggle<cr>',
+        desc = 'Quickfix List (Trouble)',
+      },
+    },
+  },
 
   -- NOTE: Plugins can specify dependencies.
   --
@@ -218,7 +256,6 @@ require('lazy').setup({
   -- you do for a plugin at the top level, you can do for a dependency.
   --
   -- Use the `dependencies` key to specify the dependencies of a particular plugin
-
   { -- Fuzzy Finder (files, lsp, etc)
     'nvim-telescope/telescope.nvim',
     event = 'VimEnter',
@@ -696,13 +733,13 @@ require('lazy').setup({
     -- change the command in the config to whatever the name of that colorscheme is.
     --
     -- If you want to see what colorschemes are already installed, you can use `:Telescope colorscheme`.
-    'folke/tokyonight.nvim',
+    'craftzdog/solarized-osaka.nvim',
     priority = 1000, -- Make sure to load this before all the other start plugins.
     init = function()
       -- Load the colorscheme here.
       -- Like many other themes, this one has different styles, and you could load
       -- any other, such as 'tokyonight-storm', 'tokyonight-moon', or 'tokyonight-day'.
-      vim.cmd.colorscheme 'tokyonight-night'
+      vim.cmd.colorscheme 'solarized-osaka'
 
       -- You can configure highlights by doing something like:
       vim.cmd.hi 'Comment gui=none'
@@ -727,26 +764,168 @@ require('lazy').setup({
       --
       -- - saiw) - [S]urround [A]dd [I]nner [W]ord [)]Paren
       -- - sd'   - [S]urround [D]elete [']quotes
-      -- - sr)'  - [S]urround [R]eplace [)] [']
-      require('mini.surround').setup()
 
-      -- Simple and easy statusline.
-      --  You could remove this setup call if you don't like it,
-      --  and try some other statusline plugin
-      local statusline = require 'mini.statusline'
-      -- set use_icons to true if you have a Nerd Font
-      statusline.setup { use_icons = vim.g.have_nerd_font }
+      local H = {}
 
-      -- You can configure sections in the statusline by overriding their
-      -- default behavior. For example, here we set the section for
-      -- cursor location to LINE:COLUMN
-      ---@diagnostic disable-next-line: duplicate-set-field
-      statusline.section_location = function()
-        return '%2l:%-2v'
+      require('mini.statusline').setup {
+        use_icons = true,
+        content = {
+          inactive = function()
+            local pathname = H.section_pathname { trunc_width = 120 }
+            return MiniStatusline.combine_groups {
+              { hl = 'MiniStatuslineInactive', strings = { pathname } },
+            }
+          end,
+          active = function()
+      -- stylua: ignore start
+      local mode, mode_hl = MiniStatusline.section_mode({ trunc_width = 120 })
+      local git           = MiniStatusline.section_git({ trunc_width = 40 })
+      local diff          = MiniStatusline.section_diff({ trunc_width = 60 })
+      local diagnostics   = MiniStatusline.section_diagnostics({ trunc_width = 60 })
+      local lsp           = MiniStatusline.section_lsp({ trunc_width = 40 })
+      local filetype      = H.section_filetype({ trunc_width = 70 })
+      local location      = H.section_location({ trunc_width = 120 })
+      local search        = H.section_searchcount({ trunc_width = 80 })
+      local pathname      = H.section_pathname({
+        trunc_width = 100,
+        filename_hl = "MiniStatuslineFilename",
+        modified_hl = "MiniStatuslineFilenameModified" })
+
+      -- Usage of `MiniStatusline.combine_groups()` ensures highlighting and
+      -- correct padding with spaces between groups (accounts for 'missing'
+      -- sections, etc.)
+      return MiniStatusline.combine_groups({
+        { hl = mode_hl,                   strings = { mode:upper() } },
+        { hl = 'MiniStatuslineDevinfo',   strings = { git, diff } },
+        '%<', -- Mark general truncate point
+        { hl = 'MiniStatuslineDirectory', strings = { pathname } },
+        '%=', -- End left alignment
+        { hl = 'MiniStatuslineFileinfo',  strings = { filetype, diagnostics, lsp } },
+        { hl = mode_hl,                   strings = { search .. location } },
+      })
+            -- stylua: ignore end
+          end,
+        },
+      }
+
+      -- Utility from mini.statusline
+      H.isnt_normal_buffer = function()
+        return vim.bo.buftype ~= ''
       end
 
-      -- ... and there is more!
-      --  Check out: https://github.com/echasnovski/mini.nvim
+      H.has_no_lsp_attached = function()
+        return #vim.lsp.get_clients() == 0
+      end
+
+      H.get_filetype_icon = function()
+        -- Have this `require()` here to not depend on plugin initialization order
+        local has_devicons, devicons = pcall(require, 'nvim-web-devicons')
+        if not has_devicons then
+          return ''
+        end
+
+        local file_name, file_ext = vim.fn.expand '%:t', vim.fn.expand '%:e'
+        return devicons.get_icon(file_name, file_ext, { default = true })
+      end
+
+      H.section_location = function(args)
+        -- Use virtual column number to allow update when past last column
+        if MiniStatusline.is_truncated(args.trunc_width) then
+          return '%-2l│%-2v'
+        end
+
+        return '󰉸 %-2l│󱥖 %-2v'
+      end
+
+      H.section_filetype = function(args)
+        if MiniStatusline.is_truncated(args.trunc_width) then
+          return ''
+        end
+
+        local filetype = vim.bo.filetype
+        if (filetype == '') or H.isnt_normal_buffer() then
+          return ''
+        end
+
+        local icon = H.get_filetype_icon()
+        if icon ~= '' then
+          filetype = string.format('%s %s', icon, filetype)
+        end
+
+        return filetype
+      end
+
+      --- Section for current search count
+      ---
+      --- Show the current status of |searchcount()|. Empty output is returned if
+      --- window width is lower than `args.trunc_width`, search highlighting is not
+      --- on (see |v:hlsearch|), or if number of search result is 0.
+      ---
+      --- `args.options` is forwarded to |searchcount()|. By default it recomputes
+      --- data on every call which can be computationally expensive (although still
+      --- usually on 0.1 ms order of magnitude). To prevent this, supply
+      --- `args.options = { recompute = false }`.
+      H.section_searchcount = function(args)
+        if vim.v.hlsearch == 0 then
+          return ''
+        end
+        -- `searchcount()` can return errors because it is evaluated very often in
+        -- statusline. For example, when typing `/` followed by `\(`, it gives E54.
+        local ok, s_count = pcall(vim.fn.searchcount, (args or {}).options or { recompute = true })
+        if not ok or s_count.current == nil or s_count.total == 0 then
+          return ''
+        end
+
+        local icon = MiniStatusline.is_truncated(args.trunc_width) and '' or ' '
+        if s_count.incomplete == 1 then
+          return icon .. '?/?│'
+        end
+
+        local too_many = ('>%d'):format(s_count.maxcount)
+        local current = s_count.current > s_count.maxcount and too_many or s_count.current
+        local total = s_count.total > s_count.maxcount and too_many or s_count.total
+        return ('%s%s/%s│'):format(icon, current, total)
+      end
+
+      H.section_pathname = function(args)
+        args = vim.tbl_extend('force', {
+          modified_hl = nil,
+          filename_hl = nil,
+          trunc_width = 80,
+        }, args or {})
+
+        if vim.bo.buftype == 'terminal' then
+          return '%t'
+        end
+
+        local path = vim.fn.expand '%:p'
+        local cwd = vim.uv.cwd() or ''
+        cwd = vim.uv.fs_realpath(cwd) or ''
+
+        if path:find(cwd, 1, true) == 1 then
+          path = path:sub(#cwd + 2)
+        end
+
+        local sep = package.config:sub(1, 1)
+        local parts = vim.split(path, sep)
+        if require('mini.statusline').is_truncated(args.trunc_width) and #parts > 3 then
+          parts = { parts[1], '…', parts[#parts - 1], parts[#parts] }
+        end
+
+        local dir = ''
+        if #parts > 1 then
+          dir = table.concat({ unpack(parts, 1, #parts - 1) }, sep) .. sep
+        end
+
+        local file = parts[#parts]
+        local file_hl = ''
+        if vim.bo.modified and args.modified_hl then
+          file_hl = '%#' .. args.modified_hl .. '#'
+        elseif args.filename_hl then
+          file_hl = '%#' .. args.filename_hl .. '#'
+        end
+        return dir .. file_hl .. file
+      end
     end,
   },
   { -- Highlight, edit, and navigate code
@@ -767,7 +946,7 @@ require('lazy').setup({
     },
     config = function(_, opts)
       -- [[ Configure Treesitter ]] See `:help nvim-treesitter`
-
+      require 'nvim-web-devicons'
       -- Prefer git instead of curl in order to improve connectivity in some environments
       require('nvim-treesitter.install').prefer_git = true
       ---@diagnostic disable-next-line: missing-fields
@@ -797,13 +976,12 @@ require('lazy').setup({
   -- require 'kickstart.plugins.autopairs',
   -- require 'kickstart.plugins.neo-tree',
   -- require 'kickstart.plugins.gitsigns', -- adds gitsigns recommend keymaps
-
   -- NOTE: The import below can automatically add your own plugins, configuration, etc from `lua/custom/plugins/*.lua`
   --    This is the easiest way to modularize your config.
   --
   --  Uncomment the following line and add your plugins to `lua/custom/plugins/*.lua` to get going.
   --    For additional information, see `:help lazy.nvim-lazy.nvim-structuring-your-plugins`
-  -- { import = 'custom.plugins' },
+  { import = 'custom.plugins' },
 }, {
   ui = {
     -- If you are using a Nerd Font: set icons to an empty table which will use the
@@ -863,3 +1041,9 @@ keymap.set('o', 'n', "'Nn'[v:searchforward]", { expr = true, desc = 'Next Search
 keymap.set('n', 'N', "'nN'[v:searchforward].'zv'", { expr = true, desc = 'Prev Search Result' })
 keymap.set('x', 'N', "'nN'[v:searchforward]", { expr = true, desc = 'Prev Search Result' })
 keymap.set('o', 'N', "'nN'[v:searchforward]", { expr = true, desc = 'Prev Search Result' })
+-- keymap.set('n', '<leader>F5>', vim.cmd.UndotreeToggle)
+vim.keymap.set('n', '<leader>u', '<CMD>UndotreeToggle<CR>', { desc = 'Undotree' })
+-- Open parent directory in current window
+vim.keymap.set('n', '-', '<CMD>Oil<CR>', { desc = 'Open parent directory' })
+-- Open parent directory in floating window
+vim.keymap.set('n', '<space>-', require('oil').toggle_float)
